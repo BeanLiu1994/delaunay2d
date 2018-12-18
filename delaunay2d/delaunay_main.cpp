@@ -1,10 +1,10 @@
 #include "delaunay_2d.h"
 #include <iostream>
-
+std::vector<Eigen::VectorXi> SolveAdjTri(const Eigen::MatrixX3i& Tri);
 int main()
 {
 	Eigen::MatrixXd pts;
-	pts.setRandom(15000, 2);
+	pts.setRandom(500, 2);
 
 	auto res = Delaunay2D(pts);
 

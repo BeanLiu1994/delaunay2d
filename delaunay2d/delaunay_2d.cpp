@@ -3,7 +3,11 @@
 #include <iostream>
 #include <algorithm>
 #include <string>
+#include <map>
+#include <set>
+#include <deque>
 #include <functional>
+#include <numeric>
 
 void error(std::string err_info)
 {
@@ -16,6 +20,50 @@ void RemoveDuplicate(std::vector<int>& ToProcess)
 	std::sort(ToProcess.begin(), ToProcess.end(), std::greater<int>());
 	ToProcess.erase(std::unique(ToProcess.begin(), ToProcess.end()), ToProcess.end());
 }
+
+// 面片相邻
+std::vector<std::vector<int>> SolveAdjTri(const Eigen::MatrixX3i& Tri)
+{
+	// 假设每边最多两个三角形共享
+	std::vector<std::vector<int>> result(Tri.rows());
+	std::map<std::pair<int, int>, int> edge_set;
+
+	std::array<int, 6> _ind_for_sorted_tri{ 0,1,0,2,1,2 };
+
+	for (int i = 0; i < Tri.rows(); ++i)
+	{
+		std::array<int, 3> tri_now_sorted{ Tri(i,0), Tri(i,1) ,Tri(i,2) };
+		std::sort(tri_now_sorted.begin(), tri_now_sorted.end());
+		for (int j = 0; j < 3; ++j)
+		{
+			auto key = std::make_pair(tri_now_sorted[_ind_for_sorted_tri[2 * j]], tri_now_sorted[_ind_for_sorted_tri[2 * j + 1]]);
+			if (edge_set.count(key))
+			{
+				result[i].push_back(edge_set[key]);
+				result[edge_set[key]].push_back(i);
+			}
+			else
+			{
+				edge_set[key] = i;
+			}
+		}
+	}
+
+	//std::vector<Eigen::VectorXi> ret(Tri.rows());
+	//for (int i = 0; i < ret.size(); ++i)
+	//{
+	//	ret[i].resize(result[i].size());
+	//	for (int j = 0; j < result[i].size(); ++j)
+	//	{
+	//		ret[i][j] = result[i][j];
+	//	}
+	//}
+	return result;
+}
+
+
+
+
 
 Delaunay2D::Delaunay2D(const Eigen::MatrixX2d& PtsToInsert)
 {
@@ -140,7 +188,7 @@ void Delaunay2D::assign(const Eigen::MatrixX2d& PtsToInsert)
 
 	FinalTri.insert(FinalTri.end(), TmpTri.begin(), TmpTri.end());
 #ifdef GenMatlabCmd
-	MatlabCmd += "figure;axis equal;grid on;res = delaunayTriangulation(p);triplot(res.ConnectivityList, p(:,1), p(:,2));title('official algorithm from matlab');\n";
+	MatlabCmd += "figure;res = delaunayTriangulation(p);triplot(res.ConnectivityList, p(:,1), p(:,2));title('official algorithm from matlab');axis equal;grid on;\n";
 #endif
 	//删除辅助三角形
 	FinalTri.erase(std::remove_if(FinalTri.begin(), FinalTri.end(), [n](const decltype(FinalTri)::value_type &t) {	return (t.array() >= n).any();	}), FinalTri.end());
@@ -152,6 +200,94 @@ void Delaunay2D::assign(const Eigen::MatrixX2d& PtsToInsert)
 			this->Tri.row(i)[j] = out_index(FinalTri[i][j]);
 	}
 
+	SameOrientation();
+
+#ifdef GenMatlabCmd
+	MatlabCmd += "figure; hold on; axis equal; grid on;title('final layout')\n";
+	MatlabCmd += "p_ori=[";
+	for (int i = 0; i < n; ++i)
+	{
+		MatlabCmd += std::to_string(PtsToInsert.row(i)[0]) + ", " + std::to_string(PtsToInsert.row(i)[1]) + ";\n";
+	}
+	MatlabCmd += "];\nplot(p_ori(:,1),p_ori(:,2),'o');\n"; 
+	MatlabCmd += "tri=[";
+	for (int i = 0; i < this->Tri.rows(); ++i)
+	{
+		MatlabCmd += std::to_string(1 + this->Tri.row(i)[0]) + ", " + std::to_string(1 + this->Tri.row(i)[1]) + ", " + std::to_string(1 + this->Tri.row(i)[2]) + ";\n";
+	}
+	MatlabCmd += "];\n";
+	MatlabCmd += "for i = 1:size(p_ori, 1)\ntext(p_ori(i, 1), p_ori(i, 2), num2str(i));\nend\n";
+	MatlabCmd += "for i = 1:size(tri, 1)\n";
+	MatlabCmd += "myline(p_ori(tri(i, 1), :), p_ori(tri(i, 2), :), 'Color', [0, 0, 1]);\n"; 
+	MatlabCmd += "myline(p_ori(tri(i, 1), :), p_ori(tri(i, 3), :), 'Color', [0, 0, 1]);\n";
+	MatlabCmd += "myline(p_ori(tri(i, 2), :), p_ori(tri(i, 3), :), 'Color', [0, 0, 1]);\nend\n";
+#endif
+}
+
+// 其实做成图遍历并调整就行
+void Delaunay2D::SameOrientation()
+{
+	enum check_status { not_visited, visited_need_flip, visited_normal };
+	std::vector<check_status> flip_status(Tri.rows(), not_visited);
+	auto Adj = SolveAdjTri(Tri);
+	std::deque<int> visiting_queue;
+	// intial condition
+	visiting_queue.push_back(0);
+	flip_status[0] = visited_normal; // 固定该面片为正常
+	// visiting all triangles
+	while (!visiting_queue.empty())
+	{
+		int now_visiting = visiting_queue.front();
+		visiting_queue.pop_front();
+
+		for (int i = 0; i < Adj[now_visiting].size(); ++i)
+		{
+			int now_comparing = Adj[now_visiting][i];
+
+			// update this by checking edge order, 如果一样就是需要反向
+			std::array<int, 2> now_visiting_ind, now_comparing_ind;
+			int now_visiting_ind_pos = 0, now_comparing_ind_pos = 0;
+			for (int j = 0; j < 3; ++j)
+				for (int k = 0; k < 3; ++k)
+					if(Tri(now_visiting, j) == Tri(now_comparing, k))
+					{
+						now_visiting_ind[now_visiting_ind_pos++] = j;
+						now_comparing_ind[now_comparing_ind_pos++] = k;
+					}
+			check_status for_update;
+			if ((now_visiting_ind[1] - now_visiting_ind[0] + 3) % 3 == (now_comparing_ind[1] - now_comparing_ind[0] + 3) % 3)
+			{
+				if(flip_status[now_visiting] == visited_normal)
+					for_update = visited_need_flip;
+				else
+					for_update = visited_normal;
+			}
+			else
+			{
+				for_update = flip_status[now_visiting];
+			}
+
+			if (flip_status[now_comparing] == not_visited)
+			{
+				flip_status[now_comparing] = for_update;
+				visiting_queue.push_back(now_comparing);
+			}
+			else
+			{
+				if (for_update != flip_status[now_comparing])
+					error("may be Mobius, check your input triangle.");//对本例不会出现这种问题
+			}
+		}
+	}
+	// flip all that need to flip
+	for (int i = 0; i < Tri.rows(); ++i)
+	{
+		if (flip_status[i] == visited_need_flip)
+		{
+			using std::swap;
+			swap(Tri(i, 1), Tri(i, 2));
+		}
+	}
 }
 
 Eigen::MatrixX3i Delaunay2D::GetTri() const

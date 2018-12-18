@@ -13,6 +13,7 @@ class Delaunay2D
 	std::string MatlabCmd;
 #endif
 	void assign(const Eigen::MatrixX2d& PtsToInsert);
+	void SameOrientation();
 	Eigen::MatrixX3i Tri;
 public:
 	Delaunay2D(const Eigen::MatrixX2d& PtsToInsert);
