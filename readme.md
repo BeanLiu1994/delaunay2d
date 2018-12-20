@@ -6,7 +6,6 @@ Eigen 3
 
 * speed may be slow.
 * special case may fail.
-* orientation should be determined when constructing triangles.
 
 
 # reference
