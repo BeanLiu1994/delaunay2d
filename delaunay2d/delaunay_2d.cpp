@@ -67,6 +67,8 @@ std::vector<std::vector<int>> SolveAdjTri(const Eigen::MatrixX3i& Tri)
 
 Delaunay2D::Delaunay2D(const Eigen::MatrixX2d& PtsToInsert)
 {
+	if (PtsToInsert.rows() > 60000)
+		std::cerr<< "More than 60000 points of input may be hard for this program.\nIt could produce wrong result or extremely slow." <<std::endl;
 	assign(PtsToInsert);
 }
 
@@ -148,7 +150,7 @@ void Delaunay2D::assign(const Eigen::MatrixX2d& PtsToInsert)
 			TmpTri.erase(TmpTri.begin() + m);
 
 		ToDelete.clear();
-		// 删除重复边，得到多边形边界，此时必为一个凸的，而插入点将分割它。
+		// 删除重复边，得到多边形边界，此时必为一个凸的(??)，而插入点将分割它。
 		for (int ith_edge = 0; ith_edge < (int)BadEdges.size() - 1; ++ith_edge)
 		{
 			for (int cmp_edge = ith_edge + 1; cmp_edge < BadEdges.size(); ++cmp_edge)
@@ -275,7 +277,7 @@ void Delaunay2D::SameOrientation()
 			else
 			{
 				if (for_update != flip_status[now_comparing])
-					error("may be Mobius, check your input triangle.");//对本例不会出现这种问题
+					error("may be Mobius or have conflicting points, check your input points.");//对本例不会出现这种问题
 			}
 		}
 	}
