@@ -38,14 +38,17 @@ inline CircleCmpStatus isInsideTriangleCircumCircle(const Eigen::RowVector2d& pt
 {
 	// ½â·½³Ì
 	double p0_v = p0.dot(p0);
-	double p1_v = p1.dot(p1);
-	double p2_v = p2.dot(p2);
+	Eigen::Vector2d delta_p_val(p0_v - p1.dot(p1), p0_v - p2.dot(p2));
 
-	Eigen::Matrix2d A;
-	A.row(0) = p0 - p1;
-	A.row(1) = p0 - p2;
-	Eigen::Vector2d b(p0_v - p1_v, p0_v - p2_v);
-	Eigen::RowVector2d center = (A.transpose() * A).colPivHouseholderQr().solve(A.transpose() * b).array() / 2;
+	Eigen::RowVector2d 
+		delta_vec_p01 = (p0 - p1).transpose(),
+		delta_vec_p02 = (p0 - p2).transpose();
+
+	double checker = 0.5 / (delta_vec_p01(0) * delta_vec_p02(1) - delta_vec_p01(1) * delta_vec_p02(0));
+
+	Eigen::RowVector2d center(
+		checker * (delta_p_val(0) * delta_vec_p02(1) - delta_p_val(1) * delta_vec_p01(1)),
+		checker * (delta_p_val(1) * delta_vec_p01(0) - delta_p_val(0) * delta_vec_p02(0)));
 
 	double r = (p1 - center).norm();
 
