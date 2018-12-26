@@ -11,10 +11,12 @@ Eigen 3 (?)
 
 # problem
 
+* still many bugs when applied to regular points. (grid, circle, axis points...)
 * speed may be slow, some optimization is needed.
 * triangle orientation could be correct when it's created, rather than repair them after creation.
 
 # reference
+
 [wikipedia](https://en.m.wikipedia.org/wiki/Bowyer-Watson_algorithm)
 
 [link to c++ implemention in wiki](https://github.com/Bl4ckb0ne/delaunay-triangulation)
