@@ -1,13 +1,18 @@
+# algorithm
+
+1. remove duplicate element, and sort by x axis.
+2. prepare a large diamond region for initial triangle.
+3. insert every point and update triangulation according to delaunay's rule.
+4. finally remove the 4 assistant points.
+
 # dependency
 
-Eigen 3
+Eigen 3 (?)
 
 # problem
 
 * speed may be slow, some optimization is needed.
-* special case may fail.
-* triangle orientation should be correct when created, rather than repair them after creation.
-* unable to solve for large number of input points.
+* triangle orientation could be correct when it's created, rather than repair them after creation.
 
 # reference
 [wikipedia](https://en.m.wikipedia.org/wiki/Bowyer-Watson_algorithm)

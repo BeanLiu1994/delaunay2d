@@ -8,17 +8,26 @@
 #include <deque>
 #include <functional>
 #include <numeric>
+//#define DBCHECK
 
-void error(std::string err_info)
+void warning(std::string err_info)
 {
 	std::cerr << err_info << std::endl;
+}
+void error(std::string err_info)
+{
+	warning(err_info);
 	throw std::runtime_error(err_info);
 }
 
-void RemoveDuplicate(std::vector<int>& ToProcess)
+void warning(bool judge, std::string err_info)
 {
-	std::sort(ToProcess.begin(), ToProcess.end(), std::greater<int>());
-	ToProcess.erase(std::unique(ToProcess.begin(), ToProcess.end()), ToProcess.end());
+	if (judge) warning(err_info);
+}
+
+void error(bool judge, std::string err_info)
+{
+	if (judge) error(err_info);
 }
 
 // 面片相邻
@@ -62,40 +71,66 @@ std::vector<std::vector<int>> SolveAdjTri(const Eigen::MatrixX3i& Tri)
 }
 
 
-
+bool check_circular(const std::vector<std::pair<int, int>>& BadEdges)
+{
+	std::map<int, std::vector<int>> mp;
+	for (int i = 0; i < BadEdges.size(); ++i)
+	{
+		mp[BadEdges[i].first].push_back(BadEdges[i].second);
+		mp[BadEdges[i].second].push_back(BadEdges[i].first);
+	}
+	for (auto iter = mp.begin(); iter != mp.end(); ++iter)
+	{
+		if(iter->second.size() != 2)
+			return false;
+	}
+	return true;
+}
 
 
 Delaunay2D::Delaunay2D(const Eigen::MatrixX2d& PtsToInsert)
 {
-	if (PtsToInsert.rows() > 60000)
-		std::cerr<< "More than 60000 points of input may be hard for this program.\nIt could produce wrong result or extremely slow." <<std::endl;
 	assign(PtsToInsert);
 }
 
 void Delaunay2D::assign(const Eigen::MatrixX2d& PtsToInsert)
 {
-	int n = PtsToInsert.rows();
-	if (n < 3)
+	auto Pts_Input = MatToStdVec(PtsToInsert);
+	assign(Pts_Input);
+}
+
+void Delaunay2D::assign(const std::vector<std::pair<double, double>>& Pts)
+{
+	if (Pts.size() < 3)
 	{
 		error("Delaunay reqiures more than 3 points.");
 	}
 
-	Eigen::RowVector2d max_bound = PtsToInsert.colwise().maxCoeff().array();
-	Eigen::RowVector2d min_bound = PtsToInsert.colwise().minCoeff().array();
+	std::pair<double, double> max_bound, min_bound;
+	for (const auto& m : Pts)
+	{
+		max_bound.first = std::max(m.first, max_bound.first);
+		max_bound.second = std::max(m.second, max_bound.second);
+		min_bound.first = std::min(m.first, min_bound.first);
+		min_bound.second = std::min(m.second, min_bound.second);
+	}
 
-	Eigen::MatrixX2d out_sorted;
-	Eigen::VectorXi out_index;
-	sort(PtsToInsert, row, 0, out_sorted, out_index);
+	std::vector<int> index;
+	std::vector<std::pair<double, double>> sorted(Pts);
+	bool hasDuplicateElem = RemoveDuplicateAndSort(sorted, index, std::less<std::pair<double, double>>());
+	if (hasDuplicateElem)
+		warning("DuplicateElem Detected, output triangulation may not use all the input points.");
 
-	Eigen::Matrix<double, -1, 2, Eigen::RowMajor> Convert;
-	Convert.resize(n + 4, 2);
-	Convert.topRows(n) = out_sorted;
+	int n = sorted.size();
+
+	std::vector<std::pair<double, double>> Convert(n + 4);
+	std::copy(sorted.begin(), sorted.end(), Convert.begin());
 
 	// 生成全包三角形(两个)
-	Convert.row(n + 0) = Eigen::RowVector2d((max_bound[0] + min_bound[0]) / 2, (3 * max_bound[1] - min_bound[1]) / 2);
-	Convert.row(n + 1) = Eigen::RowVector2d((3 * min_bound[0] - max_bound[0]) / 2, (max_bound[1] + min_bound[1]) / 2);
-	Convert.row(n + 2) = Eigen::RowVector2d((3 * max_bound[0] - min_bound[0]) / 2, (max_bound[1] + min_bound[1]) / 2);
-	Convert.row(n + 3) = Eigen::RowVector2d((max_bound[0] + min_bound[0]) / 2, (3 * min_bound[1] - max_bound[1]) / 2);
+	Convert.at(n + 0) = std::make_pair((max_bound.first + min_bound.first) / 2, (3 * max_bound.second - min_bound.second) / 2);
+	Convert.at(n + 1) = std::make_pair((3 * min_bound.first - max_bound.first) / 2, (max_bound.second + min_bound.second) / 2);
+	Convert.at(n + 2) = std::make_pair((3 * max_bound.first - min_bound.first) / 2, (max_bound.second + min_bound.second) / 2);
+	Convert.at(n + 3) = std::make_pair((max_bound.first + min_bound.first) / 2, (3 * min_bound.second - max_bound.second) / 2);
 
 #ifdef GenMatlabCmd
 	MatlabCmd += "myline = @(p1,p2,opt_title,opt_content)line([p1(1);p2(1)], [p1(2);p2(2)], opt_title, opt_content);\n";
@@ -103,16 +138,16 @@ void Delaunay2D::assign(const Eigen::MatrixX2d& PtsToInsert)
 	MatlabCmd += "p=[";
 	for (int i = 0; i < n + 4; ++i)
 	{
-		MatlabCmd += std::to_string(Convert.row(i)[0]) + ", " + std::to_string(Convert.row(i)[1]) + ";\n";
+		MatlabCmd += std::to_string(Convert[i].first) + ", " + std::to_string(Convert[i].second) + ";\n";
 	}
 	MatlabCmd += "];\nplot(p(1:end-4,1),p(1:end-4,2),'o');\nplot(p(end-3:end,1),p(end-3:end,2),'ro');\n";
 #endif
 
-	std::vector<Eigen::Vector3i, Eigen::aligned_allocator<Eigen::Vector3i>> FinalTri, TmpTri;
+	std::vector<std::array<int, 3>> FinalTri, TmpTri;
 
-	TmpTri.emplace_back(n + 0, n + 1, n + 2);
-	TmpTri.emplace_back(n + 3, n + 1, n + 2);
-	
+	TmpTri.emplace_back(std::array<int, 3>{ n + 0, n + 1, n + 2 });
+	TmpTri.emplace_back(std::array<int, 3>{ n + 3, n + 1, n + 2 });
+
 	// 遍历所有三角形
 	for (int ith_pts = 0; ith_pts < n; ++ith_pts)
 	{
@@ -121,10 +156,10 @@ void Delaunay2D::assign(const Eigen::MatrixX2d& PtsToInsert)
 		for (int ith_tri = 0; ith_tri < TmpTri.size(); ++ith_tri)
 		{
 			auto cmp_result = isInsideTriangleCircumCircle(
-				Convert.row(ith_pts),
-				Convert.row(TmpTri[ith_tri][0]),
-				Convert.row(TmpTri[ith_tri][1]),
-				Convert.row(TmpTri[ith_tri][2])
+				Convert.at(ith_pts),
+				Convert.at(TmpTri[ith_tri][0]),
+				Convert.at(TmpTri[ith_tri][1]),
+				Convert.at(TmpTri[ith_tri][2])
 			);
 			if (cmp_result == WeakAccept)
 			{
@@ -134,9 +169,9 @@ void Delaunay2D::assign(const Eigen::MatrixX2d& PtsToInsert)
 				std::copy(TmpTri[ith_tri].data(), TmpTri[ith_tri].data() + 3, tri_now_sorted.begin());
 				std::sort(tri_now_sorted.begin(), tri_now_sorted.end());
 
-				BadEdges.emplace_back(TmpTri[ith_tri][0], TmpTri[ith_tri][1]);
-				BadEdges.emplace_back(TmpTri[ith_tri][1], TmpTri[ith_tri][2]);
-				BadEdges.emplace_back(TmpTri[ith_tri][0], TmpTri[ith_tri][2]);
+				BadEdges.emplace_back(tri_now_sorted[0], tri_now_sorted[1]);
+				BadEdges.emplace_back(tri_now_sorted[1], tri_now_sorted[2]);
+				BadEdges.emplace_back(tri_now_sorted[0], tri_now_sorted[2]);
 			}
 			else if (cmp_result == StrongReject)
 			{
@@ -145,7 +180,7 @@ void Delaunay2D::assign(const Eigen::MatrixX2d& PtsToInsert)
 				FinalTri.push_back(TmpTri[ith_tri]);
 			}
 		}
-		RemoveDuplicate(ToDelete);
+		RemoveDuplicateAndSort(ToDelete);
 		for (const auto& m : ToDelete)
 			TmpTri.erase(TmpTri.begin() + m);
 
@@ -162,7 +197,8 @@ void Delaunay2D::assign(const Eigen::MatrixX2d& PtsToInsert)
 				}
 			}
 		}
-		RemoveDuplicate(ToDelete);
+		auto ori = BadEdges;
+		RemoveDuplicateAndSort(ToDelete);
 		for (const auto& m : ToDelete)
 		{
 #ifdef GenMatlabCmd
@@ -174,9 +210,12 @@ void Delaunay2D::assign(const Eigen::MatrixX2d& PtsToInsert)
 		MatlabCmd += "pause(0.05);\n";
 #endif
 
+#ifdef DBCHECK
+		error(!check_circular(BadEdges), "BadEdges are bad.");
+#endif
 		for (const auto& m : BadEdges)
 		{
-			TmpTri.emplace_back(m.first, m.second, ith_pts);
+			TmpTri.emplace_back(std::array<int, 3>{m.first, m.second, ith_pts});
 #ifdef GenMatlabCmd
 			MatlabCmd += "myline(p(1+" + std::to_string(TmpTri.back()[0]) + ",:),p(1+" + std::to_string(TmpTri.back()[1]) + ",:), 'Color', [0,0,1]);\n";
 			MatlabCmd += "myline(p(1+" + std::to_string(TmpTri.back()[0]) + ",:),p(1+" + std::to_string(TmpTri.back()[2]) + ",:), 'Color', [0,0,1]);\n";
@@ -193,25 +232,29 @@ void Delaunay2D::assign(const Eigen::MatrixX2d& PtsToInsert)
 	MatlabCmd += "figure;res = delaunayTriangulation(p);triplot(res.ConnectivityList, p(:,1), p(:,2));title('official algorithm from matlab');axis equal;grid on;\n";
 #endif
 	//删除辅助三角形
-	FinalTri.erase(std::remove_if(FinalTri.begin(), FinalTri.end(), [n](const decltype(FinalTri)::value_type &t) {	return (t.array() >= n).any();	}), FinalTri.end());
+	FinalTri.erase(std::remove_if(FinalTri.begin(), FinalTri.end(), 
+		[n](const decltype(FinalTri)::value_type &t) {	
+		return std::any_of(t.begin(), t.end(), [&n](const typename std::decay<decltype(t)>::type::value_type& v) {return v >= n; });
+	}
+	), FinalTri.end());
 
 	this->Tri.resize(FinalTri.size(), 3);
 	for (int i = 0; i < FinalTri.size(); ++i)
 	{
 		for (int j = 0; j < Tri.cols(); ++j)
-			this->Tri.row(i)[j] = out_index(FinalTri[i][j]);
+			this->Tri.row(i)[j] = index[FinalTri[i][j]];
 	}
 
-	SameOrientation();
+	ForceSameOrientation();
 
 #ifdef GenMatlabCmd
 	MatlabCmd += "figure; hold on; axis equal; grid on;title('final layout')\n";
 	MatlabCmd += "p_ori=[";
 	for (int i = 0; i < n; ++i)
 	{
-		MatlabCmd += std::to_string(PtsToInsert.row(i)[0]) + ", " + std::to_string(PtsToInsert.row(i)[1]) + ";\n";
+		MatlabCmd += std::to_string(Pts[i].first) + ", " + std::to_string(Pts[i].second) + ";\n";
 	}
-	MatlabCmd += "];\nplot(p_ori(:,1),p_ori(:,2),'o');\n"; 
+	MatlabCmd += "];\nplot(p_ori(:,1),p_ori(:,2),'o');\n";
 	MatlabCmd += "tri=[";
 	for (int i = 0; i < this->Tri.rows(); ++i)
 	{
@@ -220,14 +263,16 @@ void Delaunay2D::assign(const Eigen::MatrixX2d& PtsToInsert)
 	MatlabCmd += "];\n";
 	MatlabCmd += "for i = 1:size(p_ori, 1)\ntext(p_ori(i, 1), p_ori(i, 2), num2str(i));\nend\n";
 	MatlabCmd += "for i = 1:size(tri, 1)\n";
-	MatlabCmd += "myline(p_ori(tri(i, 1), :), p_ori(tri(i, 2), :), 'Color', [0, 0, 1]);\n"; 
+	MatlabCmd += "myline(p_ori(tri(i, 1), :), p_ori(tri(i, 2), :), 'Color', [0, 0, 1]);\n";
 	MatlabCmd += "myline(p_ori(tri(i, 1), :), p_ori(tri(i, 3), :), 'Color', [0, 0, 1]);\n";
 	MatlabCmd += "myline(p_ori(tri(i, 2), :), p_ori(tri(i, 3), :), 'Color', [0, 0, 1]);\nend\n";
 #endif
 }
 
-// 其实做成图遍历并调整就行
-void Delaunay2D::SameOrientation()
+
+
+// 做成图遍历并调整
+void Delaunay2D::ForceSameOrientation()
 {
 	enum check_status { not_visited, visited_need_flip, visited_normal };
 	std::vector<check_status> flip_status(Tri.rows(), not_visited);
@@ -276,8 +321,10 @@ void Delaunay2D::SameOrientation()
 			}
 			else
 			{
+#ifdef DBCHECK
 				if (for_update != flip_status[now_comparing])
-					error("may be Mobius or have conflicting points, check your input points.");//对本例不会出现这种问题
+					error("may be Mobius, check your input points.");//对本例不会出现这种问题,如果出错说明上面的求解有bug
+#endif
 			}
 		}
 	}

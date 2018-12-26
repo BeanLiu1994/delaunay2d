@@ -3,6 +3,7 @@
 #include <Eigen/Eigen>
 #include <string>
 #include <utility>
+#include <numeric>
 //#define GenMatlabCmd
 
 typedef std::pair<int, int> Edge;
@@ -13,7 +14,8 @@ class Delaunay2D
 	std::string MatlabCmd;
 #endif
 	void assign(const Eigen::MatrixX2d& PtsToInsert);
-	void SameOrientation();
+	void assign(const std::vector<std::pair<double, double>>& Pts);
+	void ForceSameOrientation();
 	Eigen::MatrixX3i Tri;
 public:
 	Delaunay2D(const Eigen::MatrixX2d& PtsToInsert);
@@ -31,90 +33,109 @@ enum CircleCmpStatus
 	WeakAccept
 };
 
-// compared by a sorted points (by x dim), here we treat x axis specially.
-// 由于本作按照x排好序了，比较的时候会额外比较x的情况
-inline CircleCmpStatus isInsideTriangleCircumCircle(const Eigen::RowVector2d& pts_now,
-	const Eigen::RowVector2d& p0, const Eigen::RowVector2d& p1, const Eigen::RowVector2d& p2)
+
+template<typename scalar>
+inline scalar dot(const std::pair<scalar, scalar>& pts1, const std::pair<scalar, scalar>& pts2)
+{
+	return pts1.first * pts2.first + pts1.second * pts2.second;
+}
+
+template<typename scalar>
+inline scalar dot(const std::pair<scalar, scalar>& pts)
+{
+	return dot(pts, pts);
+}
+
+template<typename scalar>
+inline std::pair<scalar, scalar> operator-(const std::pair<scalar, scalar>& pts1, const std::pair<scalar, scalar>& pts2)
+{
+	return std::make_pair(pts1.first - pts2.first, pts1.second - pts2.second);
+}
+
+
+//compared by a sorted points (by x dim), here we treat x axis specially.
+//由于本作按照x排好序了，比较的时候会额外比较x的情况
+template<typename scalar>
+CircleCmpStatus isInsideTriangleCircumCircle(const std::pair<scalar, scalar>& pts_now,
+	const std::pair<scalar, scalar>& p0, const std::pair<scalar, scalar>& p1, const std::pair<scalar, scalar>& p2)
 {
 	// 解方程
-	double p0_v = p0.dot(p0);
-	Eigen::Vector2d delta_p_val(p0_v - p1.dot(p1), p0_v - p2.dot(p2));
+	double p0_v = dot(p0);
+	std::pair<scalar, scalar> delta_p_val(p0_v - dot(p1), p0_v - dot(p2));
 
-	Eigen::RowVector2d 
-		delta_vec_p01 = (p0 - p1).transpose(),
-		delta_vec_p02 = (p0 - p2).transpose();
+	std::pair<scalar, scalar>
+		delta_vec_p01 = (p0 - p1),
+		delta_vec_p02 = (p0 - p2);
 
-	double checker = 0.5 / (delta_vec_p01(0) * delta_vec_p02(1) - delta_vec_p01(1) * delta_vec_p02(0));
+	double checker = 0.5 / (delta_vec_p01.first * delta_vec_p02.second - delta_vec_p01.second * delta_vec_p02.first);
 
-	Eigen::RowVector2d center(
-		checker * (delta_p_val(0) * delta_vec_p02(1) - delta_p_val(1) * delta_vec_p01(1)),
-		checker * (delta_p_val(1) * delta_vec_p01(0) - delta_p_val(0) * delta_vec_p02(0)));
+	std::pair<scalar, scalar> center(
+		checker * (delta_p_val.first * delta_vec_p02.second - delta_p_val.second * delta_vec_p01.second),
+		checker * (delta_p_val.second * delta_vec_p01.first - delta_p_val.first * delta_vec_p02.first));
 
-	double r = (p1 - center).norm();
+	double r = dot(p1 - center);
 
-	// center 与 pts 的 x 比较
-	// compare pts and center on x axis.
-	if (pts_now(0) - center(0) > r)
+	// center 与 pts 的 x 比较, 假定已经按照x轴排序了
+	// compare pts and center on x axis. assume that points are sorted by x axis.
+	if (std::pow(pts_now.first - center.first, 2) > r)
 		return StrongReject;
 
-	if ((pts_now - center).norm() > r)
+	if (dot(pts_now - center) > r)
 		return WeakReject;
 	
 	return WeakAccept;
 }
 
 
-// In --> sort
-// dim: row  sort while treating each row as one part,  col sort while treating each col...
-// referer: each row (or col) is expressed by one element inside. referer is the index of that value.
-// pred: i didn't test this. 我没测试这个
-//
-enum dimension { row, col };
-template<typename Derived, typename DerivedX, typename DerivedIX, typename Pred = std::less<typename Derived::Scalar>>
-void sort(const Eigen::DenseBase<Derived>& In, const dimension dim, const int referer, Eigen::PlainObjectBase<DerivedX>& sorted, Eigen::PlainObjectBase<DerivedIX>& IX, Pred pred = Pred())
+// returns if no duplicate element is removed.
+template<typename ElemTy, typename Pred = std::greater<ElemTy>>
+bool RemoveDuplicateAndSort(std::vector<ElemTy>& ToProcess, Pred pred = Pred())
 {
-	static_assert(std::is_same<typename DerivedX::Scalar, typename Derived::Scalar>::value, "output should have same type as input.");
-	typedef typename Derived::Scalar scalar;
+	size_t n = ToProcess.size();
+	std::sort(ToProcess.begin(), ToProcess.end(), pred);
+	auto last = std::unique(ToProcess.begin(), ToProcess.end());
+	ToProcess.erase(last, ToProcess.end());
+	return (last - ToProcess.begin()) == n;
+}
 
-	typename Eigen::DenseBase<Derived>::Index n;
-	std::function<scalar(int)> access_to_sort_elem;
-	if (dim == row)
-	{
-		n = In.rows();
-		access_to_sort_elem = [&In, &referer](int ith_elem) {return In(ith_elem, referer); };
-	}
-	else if (dim == col)
-	{
-		n = In.cols();
-		access_to_sort_elem = [&In, &referer](int ith_elem) {return In(referer, ith_elem); };
-	}
-	else
-	{
-		throw std::runtime_error("invalid option: dim.");
-	}
+template<typename ElemTy, typename Pred = std::greater<ElemTy>>
+bool RemoveDuplicateAndSort(std::vector<ElemTy>& ToProcess, std::vector<int>& index, Pred pred = Pred())
+{
+	size_t n = ToProcess.size();
+	index.resize(ToProcess.size());
+	std::iota(index.begin(), index.end(), 0);
 
-	std::vector<std::pair<scalar, int>> ToSort(n);
-	for (int i = 0; i < n; ++i)
-	{
-		ToSort[i].first = access_to_sort_elem(i);
-		ToSort[i].second = i;
-	}
-	std::sort(ToSort.begin(), ToSort.end(),
-		[&pred](const std::pair<scalar, int>& v1, const std::pair<scalar, int>& v2) {return pred(v1.first, v2.first); }
+	std::vector<std::pair<ElemTy, int>> combined;
+	combined.reserve(ToProcess.size());
+	for (int i = 0; i < ToProcess.size(); ++i)
+		combined.emplace_back(ToProcess[i], index[i]);
+
+	std::sort(combined.begin(), combined.end(),
+		[&pred](std::pair<ElemTy, int>& v1, std::pair<ElemTy, int>& v2) {return pred(v1.first, v2.first); }
 	);
 
-	sorted.resizeLike(In);
-	IX.resize(n);
-	for (int i = 0; i < n; ++i)
+	long long finish = std::unique(combined.begin(), combined.end(),
+		[](std::pair<ElemTy, int>& v1, std::pair<ElemTy, int>& v2) {return v1.first == v2.first; }
+	) - combined.begin();
+
+	ToProcess.erase(ToProcess.begin() + finish, ToProcess.end());
+	index.erase(index.begin() + finish, index.end());
+	for (int i = 0; i < finish; ++i)
 	{
-		IX(i) = ToSort[i].second;
-		if (dim == row)
-		{
-			sorted.row(i) = In.row(ToSort[i].second);
-		}
-		else
-		{
-			sorted.col(i) = In.col(ToSort[i].second);
-		}
+		ToProcess[i] = combined[i].first;
+		index[i] = combined[i].second;
 	}
+	return (finish) == n;
+}
+
+template<typename scalar>
+std::vector<std::pair<scalar, scalar>> MatToStdVec(const Eigen::Matrix<scalar, -1, 2>& In)
+{
+	std::vector<std::pair<scalar, scalar>> ret;
+	ret.reserve(In.rows());
+	for (int i = 0; i < In.rows(); ++i)
+	{
+		ret.emplace_back(In(i, 0), In(i, 1));
+	}
+	return ret;
 }
