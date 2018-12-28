@@ -5,7 +5,7 @@
 #include <utility>
 #include <numeric>
 #include <array>
-//#define GenMatlabCmd
+#define GenMatlabCmd
 #define DELAUNAY_2D_USE_EIGEN
 
 #ifdef DELAUNAY_2D_USE_EIGEN
@@ -57,7 +57,8 @@ namespace Delaunay2D
 	{
 		StrongReject,
 		WeakReject,
-		WeakAccept
+		WeakAccept,
+		Borderline
 	};
 
 
@@ -76,6 +77,21 @@ namespace Delaunay2D
 		return Point{ pts1[0] - pts2[0], pts1[1] - pts2[1] };
 	}
 
+	/**
+	 * from https://github.com/Bl4ckb0ne/delaunay-triangulation/blob/master/numeric.h
+	 * @brief use of machine epsilon to compare floating-point values for equality
+	 * http://en.cppreference.com/w/cpp/types/numeric_limits/epsilon
+	 */
+	template<typename T>
+	inline typename std::enable_if<!std::numeric_limits<T>::is_integer, bool>::type
+		almost_equal(T x, T y, int ulp = 2)
+	{
+		// the machine epsilon has to be scaled to the magnitude of the values used
+		// and multiplied by the desired precision in ULPs (units in the last place)
+		return std::abs(x - y) <= std::numeric_limits<T>::epsilon() * std::abs(x + y) * ulp
+			// unless the result is subnormal
+			|| std::abs(x - y) < std::numeric_limits<T>::min();
+	}
 
 	//compared by a sorted points (by x dim), here we treat x axis specially.
 	//由于本作按照x排好序了，比较的时候会额外比较x的情况
@@ -92,18 +108,33 @@ namespace Delaunay2D
 
 		double checker = 0.5 / (delta_vec_p01[0] * delta_vec_p02[1] - delta_vec_p01[1] * delta_vec_p02[0]);
 
-		Point center{
-			checker * (delta_p_val[0] * delta_vec_p02[1] - delta_p_val[1] * delta_vec_p01[1]),
-			checker * (delta_p_val[1] * delta_vec_p01[0] - delta_p_val[0] * delta_vec_p02[0]) };
+
+		// 三点共线检查
+		if (std::isinf(checker))
+		{
+			return WeakReject;
+		}
+
+		Point center = {
+				checker * (delta_p_val[0] * delta_vec_p02[1] - delta_p_val[1] * delta_vec_p01[1]),
+				checker * (delta_p_val[1] * delta_vec_p01[0] - delta_p_val[0] * delta_vec_p02[0])
+		};
 
 		double r = dot(p1 - center);
+		
 
 		// center 与 pts 的 x 比较, 假定已经按照x轴排序了
 		// compare pts and center on x axis. assume that points are sorted by x axis.
+
 		if (std::pow(pts_now[0] - center[0], 2) > r)
 			return StrongReject;
 
-		if (dot(pts_now - center) > r)
+		double len = dot(pts_now - center);
+
+		if (almost_equal(len, r))
+			return Borderline;
+
+		if (len > r)
 			return WeakReject;
 
 		return WeakAccept;

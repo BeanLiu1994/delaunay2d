@@ -8,7 +8,18 @@
 #include <deque>
 #include <functional>
 #include <numeric>
-//#define DBCHECK
+#define DBCHECK
+
+inline std::string EdgeToMatlabCmd(const std::vector<Delaunay2D::Edge>& ori)
+{
+	std::string cmd = "\nblist = [";
+	for (const auto& m : ori)
+	{
+		cmd += std::to_string(m.first) + ", " + std::to_string(m.second) + "; ";
+	}
+	cmd += "]+1;\nfor i = 1:size(blist, 1)\n	myline(p(blist(i, 1), :), p(blist(i, 2), :), 'Color', [1, 0, 0]);\nend";
+	return cmd;
+}
 
 void warning(std::string err_info)
 {
@@ -117,7 +128,7 @@ namespace Delaunay2D
 			error("Delaunay reqiures more than 3 points.");
 		}
 
-		Point max_bound, min_bound;
+		Point max_bound{ Pts[0][0], Pts[0][1] }, min_bound{ Pts[0][0], Pts[0][1] };
 		for (const auto& m : Pts)
 		{
 			max_bound[0] = std::max(m[0], max_bound[0]);
@@ -149,7 +160,7 @@ namespace Delaunay2D
 		MatlabCmd += "p=[";
 		for (int i = 0; i < n + 4; ++i)
 		{
-			MatlabCmd += std::to_string(Convert[i].first) + ", " + std::to_string(Convert[i].second) + ";\n";
+			MatlabCmd += std::to_string(Convert[i][0]) + ", " + std::to_string(Convert[i][1]) + ";\n";
 		}
 		MatlabCmd += "];\nplot(p(1:end-4,1),p(1:end-4,2),'o');\nplot(p(end-3:end,1),p(end-3:end,2),'ro');\n";
 #endif
@@ -176,13 +187,11 @@ namespace Delaunay2D
 				{
 					ToDelete.push_back(ith_tri);
 
-					std::array<int, 3> tri_now_sorted;
-					std::copy(TmpTri[ith_tri].data(), TmpTri[ith_tri].data() + 3, tri_now_sorted.begin());
-					std::sort(tri_now_sorted.begin(), tri_now_sorted.end());
+					std::sort(TmpTri[ith_tri].data(), TmpTri[ith_tri].data() + 3);
 
-					BadEdges.emplace_back(tri_now_sorted[0], tri_now_sorted[1]);
-					BadEdges.emplace_back(tri_now_sorted[1], tri_now_sorted[2]);
-					BadEdges.emplace_back(tri_now_sorted[0], tri_now_sorted[2]);
+					BadEdges.emplace_back(TmpTri[ith_tri][0], TmpTri[ith_tri][1]);
+					BadEdges.emplace_back(TmpTri[ith_tri][1], TmpTri[ith_tri][2]);
+					BadEdges.emplace_back(TmpTri[ith_tri][0], TmpTri[ith_tri][2]);
 				}
 				else if (cmp_result == StrongReject)
 				{
@@ -222,7 +231,7 @@ namespace Delaunay2D
 #endif
 
 #ifdef DBCHECK
-			error(!check_circular(BadEdges), "BadEdges are bad.");
+			error(!check_circular(BadEdges), "BadEdges are bad." + EdgeToMatlabCmd(ori));
 #endif
 			for (const auto& m : BadEdges)
 			{
@@ -262,13 +271,13 @@ namespace Delaunay2D
 		MatlabCmd += "p_ori=[";
 		for (int i = 0; i < n; ++i)
 		{
-			MatlabCmd += std::to_string(Pts[i].first) + ", " + std::to_string(Pts[i].second) + ";\n";
+			MatlabCmd += std::to_string(Pts[i][0]) + ", " + std::to_string(Pts[i][0]) + ";\n";
 		}
 		MatlabCmd += "];\nplot(p_ori(:,1),p_ori(:,2),'o');\n";
 		MatlabCmd += "tri=[";
-		for (int i = 0; i < this->Tri.rows(); ++i)
+		for (int i = 0; i < this->Tri.size(); ++i)
 		{
-			MatlabCmd += std::to_string(1 + this->Tri.row(i)[0]) + ", " + std::to_string(1 + this->Tri.row(i)[1]) + ", " + std::to_string(1 + this->Tri.row(i)[2]) + ";\n";
+			MatlabCmd += std::to_string(1 + this->Tri[i][0]) + ", " + std::to_string(1 + this->Tri[i][1]) + ", " + std::to_string(1 + this->Tri[i][2]) + ";\n";
 		}
 		MatlabCmd += "];\n";
 		MatlabCmd += "for i = 1:size(p_ori, 1)\ntext(p_ori(i, 1), p_ori(i, 2), num2str(i));\nend\n";
